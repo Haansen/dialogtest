@@ -26,8 +26,9 @@ var id = await DialogOpener.OpenAsync<ApaDialog, int>("Apa", new { ModelId = mod
 // 3. En hel modell-klass – matchande propertynamn mappas, övriga ignoreras
 var saved = await DialogOpener.OpenAsync<ApaDialog, Customer>("Apa", customer);
 
-// 4. Annan storlek
-await DialogOpener.OpenAsync<ApaDialog>("Apa", maxWidth: MaxWidth.Large);
+// 4. Annan storlek via central preset (DialogSize-paketet styr allt: MaxWidth,
+//    css-klass, backdrop-close, stängknapp osv — definieras i DialogOpenerOptions)
+await DialogOpener.OpenAsync<ApaDialog>("Apa", size: DialogSize.Large);
 
 // 5. Full kontroll när det behövs (typ-säkert alternativ)
 var r = await DialogOpener.OpenAsync<ApaDialog, Customer>("Apa",
@@ -41,6 +42,24 @@ bool confirmed  = await DialogOpener.ConfirmAsync("Ta bort", "Säker?");
 ```
 
 `null`/`default` tillbaka betyder alltid att användaren avbröt (Esc, krysset, Avbryt).
+
+## Storleks-presets
+
+`size` är en `DialogSize` (`Small`/`Medium`/`Large`/`ExtraLarge`/`FullScreen`) som mappas mot ett
+**centralt definierat** `DialogOptions`-paket i `Services/DialogOpenerOptions.cs` — MaxWidth,
+css-klass (`BackgroundClass`), `BackdropClick`, `CloseButton`, `CloseOnEscapeKey` med mera.
+Ändra på ett ställe så gäller det alla dialoger i appen:
+
+```csharp
+// Program.cs
+builder.Services.AddDialogOpener(o =>
+{
+    o.Presets[DialogSize.Medium].BackdropClick = false;           // ingen stängning vid klick utanför
+    o.Presets[DialogSize.Medium].BackgroundClass = "min-medium";  // egen css-klass
+});
+```
+
+Explicit `options:` i ett anrop vinner alltid över preseten.
 
 ## Parametermappning
 

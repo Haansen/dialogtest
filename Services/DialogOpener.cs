@@ -15,6 +15,8 @@ namespace DialogTest.Services;
 ///   valfri modell-klass         – matchande propertynamn mappas, övriga ignoreras
 ///   DialogParameters&lt;TDialog&gt;   – typ-säkert, används som det är
 ///   IReadOnlyDictionary         – nyckel/värde direkt
+///
+/// Storlek styrs via DialogSize-preset (centralt i DialogOpenerOptions.Presets).
 /// </summary>
 public interface IDialogOpener
 {
@@ -22,7 +24,7 @@ public interface IDialogOpener
     Task<DialogResult?> OpenAsync<TDialog>(
         string? title = null,
         object? parameters = null,
-        MaxWidth maxWidth = MaxWidth.Medium,
+        DialogSize size = DialogSize.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
         where TDialog : IComponent;
@@ -31,7 +33,7 @@ public interface IDialogOpener
     Task<TResult?> OpenAsync<TDialog, TResult>(
         string? title = null,
         object? parameters = null,
-        MaxWidth maxWidth = MaxWidth.Medium,
+        DialogSize size = DialogSize.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
         where TDialog : IComponent;
@@ -40,7 +42,7 @@ public interface IDialogOpener
     Task<DialogResult?> OpenChildAsync<TDialog>(
         string? title = null,
         object? parameters = null,
-        MaxWidth maxWidth = MaxWidth.Medium,
+        DialogSize size = DialogSize.Medium,
         DialogOptions? options = null)
         where TDialog : IComponent;
 
@@ -48,7 +50,7 @@ public interface IDialogOpener
     Task<TResult?> OpenChildAsync<TDialog, TResult>(
         string? title = null,
         object? parameters = null,
-        MaxWidth maxWidth = MaxWidth.Medium,
+        DialogSize size = DialogSize.Medium,
         DialogOptions? options = null)
         where TDialog : IComponent;
 
@@ -64,17 +66,19 @@ public interface IDialogOpener
 public sealed class DialogOpener : IDialogOpener
 {
     private readonly IDialogService _dialogService;
+    private readonly DialogOpenerOptions _config;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    public DialogOpener(IDialogService dialogService)
+    public DialogOpener(IDialogService dialogService, DialogOpenerOptions config)
     {
         _dialogService = dialogService;
+        _config = config;
     }
 
     public async Task<DialogResult?> OpenAsync<TDialog>(
         string? title = null,
         object? parameters = null,
-        MaxWidth maxWidth = MaxWidth.Medium,
+        DialogSize size = DialogSize.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
         where TDialog : IComponent
@@ -82,7 +86,7 @@ public sealed class DialogOpener : IDialogOpener
         await _lock.WaitAsync(cancellationToken);
         try
         {
-            return await ShowCoreAsync<TDialog>(title, parameters, maxWidth, options);
+            return await ShowCoreAsync<TDialog>(title, parameters, size, options);
         }
         finally
         {
@@ -93,31 +97,31 @@ public sealed class DialogOpener : IDialogOpener
     public async Task<TResult?> OpenAsync<TDialog, TResult>(
         string? title = null,
         object? parameters = null,
-        MaxWidth maxWidth = MaxWidth.Medium,
+        DialogSize size = DialogSize.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
         where TDialog : IComponent
     {
-        var result = await OpenAsync<TDialog>(title, parameters, maxWidth, options, cancellationToken);
+        var result = await OpenAsync<TDialog>(title, parameters, size, options, cancellationToken);
         return Unwrap<TResult>(result);
     }
 
     public Task<DialogResult?> OpenChildAsync<TDialog>(
         string? title = null,
         object? parameters = null,
-        MaxWidth maxWidth = MaxWidth.Medium,
+        DialogSize size = DialogSize.Medium,
         DialogOptions? options = null)
         where TDialog : IComponent
-        => ShowCoreAsync<TDialog>(title, parameters, maxWidth, options);
+        => ShowCoreAsync<TDialog>(title, parameters, size, options);
 
     public async Task<TResult?> OpenChildAsync<TDialog, TResult>(
         string? title = null,
         object? parameters = null,
-        MaxWidth maxWidth = MaxWidth.Medium,
+        DialogSize size = DialogSize.Medium,
         DialogOptions? options = null)
         where TDialog : IComponent
     {
-        var result = await ShowCoreAsync<TDialog>(title, parameters, maxWidth, options);
+        var result = await ShowCoreAsync<TDialog>(title, parameters, size, options);
         return Unwrap<TResult>(result);
     }
 
@@ -128,29 +132,26 @@ public sealed class DialogOpener : IDialogOpener
         string cancelText = "Avbryt",
         Color confirmColor = Color.Primary)
         => OpenChildAsync<Components.Dialogs.ConfirmDialog, bool>(title,
-            new { Message = message, ConfirmText = confirmText, CancelText = cancelText, ConfirmColor = confirmColor });
+            new { Message = message, ConfirmText = confirmText, CancelText = cancelText, ConfirmColor = confirmColor },
+            DialogSize.Small);
 
     private async Task<DialogResult?> ShowCoreAsync<TDialog>(
         string? title,
         object? parameters,
-        MaxWidth maxWidth,
+        DialogSize size,
         DialogOptions? options)
         where TDialog : IComponent
     {
         var dialog = await _dialogService.ShowAsync<TDialog>(
             title ?? string.Empty,
             BuildParameters<TDialog>(parameters),
-            options ?? DefaultOptions(maxWidth));
+            ResolveOptions(size, options));
         return await dialog.Result;
     }
 
-    private static DialogOptions DefaultOptions(MaxWidth maxWidth) => new()
-    {
-        MaxWidth = maxWidth,
-        FullWidth = true,
-        CloseButton = true,
-        CloseOnEscapeKey = true
-    };
+    // Explicit options vinner alltid; annars en färsk kopia av den centrala preseten.
+    private DialogOptions ResolveOptions(DialogSize size, DialogOptions? options)
+        => options ?? DialogOpenerOptions.Copy(_config.Presets[size]);
 
     private static DialogParameters<TDialog> BuildParameters<TDialog>(object? parameters)
         where TDialog : IComponent

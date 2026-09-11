@@ -58,3 +58,16 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+/* DialogOpener-presets (DialogOpenerOptions.Presets → BackgroundClass) */
+.dialog-backdrop {
+    backdrop-filter: blur(2px);
+}
+
+.dialog-medium {
+    background-color: rgba(0, 0, 0, 0.45);
+}
+
+.dialog-large,
+.dialog-xl {
+    background-color: rgba(0, 0, 0, 0.6);
+}

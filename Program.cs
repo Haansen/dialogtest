@@ -1,6 +1,5 @@
 using DialogTest.Components;
 using DialogTest.Services;
-using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,8 +7,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-builder.Services.AddMudServices();
-builder.Services.AddScoped<IDialogOpener, DialogOpener>();
+// Centrala dialog-presets: vad "Medium" osv faktiskt innebär definieras här
+builder.Services.AddDialogOpener(o =>
+{
+    // Exempel på anpassning:
+    // o.Presets[DialogSize.Medium].BackdropClick = false;
+});
 
 var app = builder.Build();
 
