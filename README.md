@@ -90,9 +90,9 @@ var saved = await DialogOpener.OpenAsync<CustomerDialog, Customer>("Redigera", c
 ```
 
 Det finns bara en metod — `OpenAsync` — som används både från pages och inifrån dialoger.
-Tekniskt är spärren en `SemaphoreSlim` per dialogtyp i en
-`ConcurrentDictionary<Type, SemaphoreSlim>` i den scoped servicen, och avvisningen sker
-med `WaitAsync(0)` — kö hade betytt att samma dialog till slut öppnats en gång till.
+Tekniskt är spärren en `ConcurrentDictionary<Type, byte>` i den scoped servicen: ett atomiskt
+`TryAdd` på dialogtypen. Går det inte att lägga till är typen redan öppen och anropet avvisas
+direkt — kö hade betytt att samma dialog till slut öppnats en gång till.
 
 ## Dialog-kontraktet
 
