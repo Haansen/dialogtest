@@ -63,12 +63,20 @@
         Snackbar.Add($"{created.Name} skapad", Severity.Success);
     }
 
+    // Bekräftelse är bara en vanlig dialog — ConfirmDialog anropas via OpenAsync
     private async Task DeleteCustomer(Customer customer)
     {
-        if (!await DialogOpener.ConfirmAsync("Ta bort kund",
-                $"Vill du ta bort {customer.Name}? Detta kan inte ångras.",
-                confirmText: "Ta bort", confirmColor: Color.Error))
-            return;
+        var confirmed = await DialogOpener.OpenAsync<ConfirmDialog, bool>(
+            "Ta bort kund",
+            new
+            {
+                Message = $"Vill du ta bort {customer.Name}? Detta kan inte ångras.",
+                ConfirmText = "Ta bort",
+                ConfirmColor = Color.Error
+            },
+            DialogSize.Small);
+
+        if (!confirmed) return;
 
         _customers.Remove(customer);
         Snackbar.Add("Kund borttagen", Severity.Info);

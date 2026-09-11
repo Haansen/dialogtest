@@ -107,7 +107,7 @@ public sealed class DialogOpenerOptions
 /// </summary>
 public interface IDialogOpener
 {
-    /// <summary>Öppnar en toppnivå-dialog. Avvisas (null) om samma dialogtyp redan är öppen.</summary>
+    /// <summary>Öppnar en dialog. Avvisas (null) om samma dialogtyp redan är öppen.</summary>
     Task<DialogResult?> OpenAsync<TDialog>(
         string? title = null,
         object? parameters = null,
@@ -116,7 +116,7 @@ public interface IDialogOpener
         CancellationToken cancellationToken = default)
         where TDialog : IComponent;
 
-    /// <summary>Öppnar en toppnivå-dialog och returnerar ett typat resultat (default vid avbrott/avvisning).</summary>
+    /// <summary>Öppnar en dialog och returnerar ett typat resultat (default vid avbrott/avvisning).</summary>
     Task<TResult?> OpenAsync<TDialog, TResult>(
         string? title = null,
         object? parameters = null,
@@ -124,30 +124,6 @@ public interface IDialogOpener
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
         where TDialog : IComponent;
-
-    /// <summary>Öppnar en barn-dialog inifrån en dialog. Avvisas (null) om samma dialogtyp redan är öppen.</summary>
-    Task<DialogResult?> OpenChildAsync<TDialog>(
-        string? title = null,
-        object? parameters = null,
-        DialogSize size = DialogSize.Medium,
-        DialogOptions? options = null)
-        where TDialog : IComponent;
-
-    /// <summary>Öppnar en barn-dialog inifrån en dialog och returnerar ett typat resultat.</summary>
-    Task<TResult?> OpenChildAsync<TDialog, TResult>(
-        string? title = null,
-        object? parameters = null,
-        DialogSize size = DialogSize.Medium,
-        DialogOptions? options = null)
-        where TDialog : IComponent;
-
-    /// <summary>Enkel bekräftelsedialog. Fungerar både från pages och inifrån dialoger.</summary>
-    Task<bool> ConfirmAsync(
-        string title,
-        string message,
-        string confirmText = "Ja",
-        string cancelText = "Avbryt",
-        Color confirmColor = Color.Primary);
 }
 
 public sealed class DialogOpener : IDialogOpener
@@ -185,35 +161,6 @@ public sealed class DialogOpener : IDialogOpener
         var result = await OpenGuardedAsync<TDialog>(title, parameters, size, options, cancellationToken);
         return Unwrap<TResult>(result);
     }
-
-    public Task<DialogResult?> OpenChildAsync<TDialog>(
-        string? title = null,
-        object? parameters = null,
-        DialogSize size = DialogSize.Medium,
-        DialogOptions? options = null)
-        where TDialog : IComponent
-        => OpenGuardedAsync<TDialog>(title, parameters, size, options, CancellationToken.None);
-
-    public async Task<TResult?> OpenChildAsync<TDialog, TResult>(
-        string? title = null,
-        object? parameters = null,
-        DialogSize size = DialogSize.Medium,
-        DialogOptions? options = null)
-        where TDialog : IComponent
-    {
-        var result = await OpenGuardedAsync<TDialog>(title, parameters, size, options, CancellationToken.None);
-        return Unwrap<TResult>(result);
-    }
-
-    public Task<bool> ConfirmAsync(
-        string title,
-        string message,
-        string confirmText = "Ja",
-        string cancelText = "Avbryt",
-        Color confirmColor = Color.Primary)
-        => OpenChildAsync<Components.Dialogs.ConfirmDialog, bool>(title,
-            new { Message = message, ConfirmText = confirmText, CancelText = cancelText, ConfirmColor = confirmColor },
-            DialogSize.Small);
 
     // Tar spärren för just denna dialogtyp. Är den redan öppen avvisas anropet
     // direkt (WaitAsync(0)) och null returneras — kö hade inneburit att samma

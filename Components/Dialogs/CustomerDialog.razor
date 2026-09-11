@@ -39,8 +39,8 @@
 
     private async Task PickAddress()
     {
-        // Inifrån dialogen: OpenChildAsync staplar direkt ovanpå, ingen spärr
-        var address = await DialogOpener.OpenChildAsync<AddressPickerDialog, Address>(title: "Välj adress");
+        // Samma metod överallt — även inifrån en dialog staplas den direkt
+        var address = await DialogOpener.OpenAsync<AddressPickerDialog, Address>("Välj adress");
         if (address is not null)
             _model.Address = address;
     }

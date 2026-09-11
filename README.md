@@ -38,8 +38,11 @@ var r = await DialogOpener.OpenAsync<ApaDialog, Customer>("Apa",
 // 6. Returtypen är vad dialogen än returnerar – int, bool, modell, record ...
 int number      = await DialogOpener.OpenAsync<NumberDialog, int>("Välj tal");
 Customer cust   = await DialogOpener.OpenAsync<CustomerDialog, Customer>("Redigera", customer);
-bool confirmed  = await DialogOpener.ConfirmAsync("Ta bort", "Säker?");
+bool confirmed  = await DialogOpener.OpenAsync<ConfirmDialog, bool>("Ta bort", new { Message = "Säker?" });
 ```
+
+En dialog som öppnas inifrån en annan dialog använder samma metod — den staplas direkt
+eftersom spärren är per dialogtyp, inte global.
 
 `null`/`default` tillbaka betyder alltid att användaren avbröt (Esc, krysset, Avbryt).
 
@@ -86,8 +89,8 @@ var saved = await DialogOpener.OpenAsync<CustomerDialog, Customer>("Redigera", c
 // Samtidigt: en helt annan dialog kan vara öppen utan att blockeras.
 ```
 
-Det gäller både `OpenAsync`, `OpenChildAsync` och `ConfirmAsync` — en `ConfirmDialog`
-kan t.ex. inte öppnas dubbelt. Tekniskt är det en `SemaphoreSlim` per dialogtyp i en
+Det finns bara en metod — `OpenAsync` — som används både från pages och inifrån dialoger.
+Tekniskt är spärren en `SemaphoreSlim` per dialogtyp i en
 `ConcurrentDictionary<Type, SemaphoreSlim>` i den scoped servicen, och avvisningen sker
 med `WaitAsync(0)` — kö hade betytt att samma dialog till slut öppnats en gång till.
 
