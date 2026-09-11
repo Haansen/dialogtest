@@ -46,7 +46,7 @@ bool confirmed  = await DialogOpener.ConfirmAsync("Ta bort", "Säker?");
 ## Storleks-presets
 
 `size` är en `DialogSize` (`Small`/`Medium`/`Large`/`ExtraLarge`/`FullScreen`) som mappas mot ett
-**centralt definierat** `DialogOptions`-paket i `Services/DialogOpenerOptions.cs` — MaxWidth,
+**centralt definierat** `DialogOptions`-paket i `Services/DialogOpener.cs` — MaxWidth,
 css-klass (`BackgroundClass`), `BackdropClick`, `CloseButton`, `CloseOnEscapeKey` med mera.
 Ändra på ett ställe så gäller det alla dialoger i appen:
 
@@ -103,7 +103,7 @@ barn-dialoger medvetet går förbi spärren — MudBlazor stödjer staplade dial
 ## Struktur
 
 ```
-Services/DialogOpener.cs               – IDialogOpener + implementation (spärr + mappning)
+Services/DialogOpener.cs               – allt i en fil: IDialogOpener, DialogSize, presets, DI-extension
 Components/Dialogs/ConfirmDialog.razor – återanvändbar bekräftelsedialog
 Components/Dialogs/CustomerDialog.razor – exempel: redigera kund (öppnar barn-dialog)
 Components/Dialogs/AddressPickerDialog.razor – exempel på barn-dialog
