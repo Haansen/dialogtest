@@ -1,0 +1,77 @@
+@page "/customers"
+@using DialogTest.Components.Dialogs
+@using DialogTest.Models
+@using DialogTest.Services
+@inject IDialogOpener DialogOpener
+@inject ISnackbar Snackbar
+
+<PageTitle>Kunder</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Kunder</MudText>
+
+<MudTable Items="_customers" Hover="true" Class="mb-4">
+    <HeaderContent>
+        <MudTh>Id</MudTh>
+        <MudTh>Namn</MudTh>
+        <MudTh>Adress</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.Id</MudTd>
+        <MudTd>@context.Name</MudTd>
+        <MudTd>@context.Address</MudTd>
+        <MudTd>
+            <MudIconButton Icon="@Icons.Material.Filled.Edit" OnClick="@(() => EditCustomer(context))" />
+            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteCustomer(context))" />
+        </MudTd>
+    </RowTemplate>
+</MudTable>
+
+<MudButton Color="Color.Primary" Variant="Variant.Filled"
+           StartIcon="@Icons.Material.Filled.Add" OnClick="NewCustomer">
+    Ny kund
+</MudButton>
+
+@code {
+    private List<Customer> _customers =
+    [
+        new() { Id = 1, Name = "Acme AB" },
+        new() { Id = 2, Name = "Globex HB" }
+    ];
+
+    // One-liner: öppna dialog, få typat resultat, null = användaren avbröt
+    private async Task EditCustomer(Customer customer)
+    {
+        var saved = await DialogOpener.OpenAsync<CustomerDialog, Customer>(
+            title: "Redigera kund",
+            parameters: new DialogParameters<CustomerDialog> { { x => x.CustomerId, customer.Id } },
+            options: new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true });
+
+        if (saved is null) return;
+
+        customer.Name = saved.Name;
+        customer.Address = saved.Address;
+        Snackbar.Add($"{saved.Name} uppdaterad", Severity.Success);
+    }
+
+    private async Task NewCustomer()
+    {
+        var created = await DialogOpener.OpenAsync<CustomerDialog, Customer>(title: "Ny kund");
+        if (created is null) return;
+
+        created.Id = _customers.Max(c => c.Id) + 1;
+        _customers.Add(created);
+        Snackbar.Add($"{created.Name} skapad", Severity.Success);
+    }
+
+    private async Task DeleteCustomer(Customer customer)
+    {
+        if (!await DialogOpener.ConfirmAsync("Ta bort kund",
+                $"Vill du ta bort {customer.Name}? Detta kan inte ångras.",
+                confirmText: "Ta bort", confirmColor: Color.Error))
+            return;
+
+        _customers.Remove(customer);
+        Snackbar.Add("Kund borttagen", Severity.Info);
+    }
+}

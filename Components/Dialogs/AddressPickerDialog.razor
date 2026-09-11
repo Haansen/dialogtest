@@ -1,0 +1,29 @@
+@using DialogTest.Models
+
+<MudDialog>
+    <DialogContent>
+        <MudList T="Address" SelectedValueChanged="OnSelected">
+            @foreach (var address in _addresses)
+            {
+                <MudListItem Value="address" Text="@address.ToString()" />
+            }
+        </MudList>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Avbryt</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private readonly List<Address> _addresses =
+    [
+        new() { Street = "Storgatan 1", City = "Stockholm" },
+        new() { Street = "Kungsgatan 12", City = "Göteborg" },
+        new() { Street = "Drottninggatan 5", City = "Malmö" }
+    ];
+
+    private void OnSelected(Address address) => MudDialog.Close(DialogResult.Ok(address));
+    private void Cancel() => MudDialog.Cancel();
+}

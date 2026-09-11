@@ -1,0 +1,50 @@
+@using DialogTest.Models
+@using DialogTest.Services
+@inject IDialogOpener DialogOpener
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="_model.Name" Label="Namn" Variant="Variant.Outlined" Class="mb-3" />
+        <MudButton Variant="Variant.Outlined"
+                   StartIcon="@Icons.Material.Filled.LocationOn"
+                   OnClick="PickAddress">
+            Välj adress...
+        </MudButton>
+        @if (_model.Address is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mt-2">@_model.Address</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Avbryt</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save">Spara</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public int? CustomerId { get; set; }
+
+    private Customer _model = new();
+
+    protected override void OnInitialized()
+    {
+        if (CustomerId is int id)
+        {
+            // Simulerad uppslagning — i ett riktigt projekt: ladda från databas/API
+            _model = new Customer { Id = id, Name = $"Kund {id}" };
+        }
+    }
+
+    private async Task PickAddress()
+    {
+        // Inifrån dialogen: OpenChildAsync staplar direkt ovanpå, ingen spärr
+        var address = await DialogOpener.OpenChildAsync<AddressPickerDialog, Address>(title: "Välj adress");
+        if (address is not null)
+            _model.Address = address;
+    }
+
+    private void Save() => MudDialog.Close(DialogResult.Ok(_model));
+    private void Cancel() => MudDialog.Cancel();
+}
