@@ -38,10 +38,19 @@ public interface IDialogOpener
         where TDialog : IComponent;
 }
 
-public sealed class DialogOpener(IDialogService dialogService, DialogOpenerOptions config) : IDialogOpener
+public sealed class DialogOpener : IDialogOpener
 {
+    private readonly IDialogService _dialogService;
+    private readonly DialogOpenerOptions _config;
+
     // Typerna som är öppna just nu. TryAdd är atomiskt = spärren, helt utan SemaphoreSlim.
-    private readonly ConcurrentDictionary<Type, byte> _openDialogs = new();
+    private readonly ConcurrentDictionary<Type, byte> _openDialogs = new ConcurrentDictionary<Type, byte>();
+
+    public DialogOpener(IDialogService dialogService, DialogOpenerOptions config)
+    {
+        _dialogService = dialogService;
+        _config = config;
+    }
 
     public Task<DialogResult?> OpenAsync<TDialog>(
         string? title = null,
@@ -50,7 +59,9 @@ public sealed class DialogOpener(IDialogService dialogService, DialogOpenerOptio
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
         where TDialog : IComponent
-        => OpenGuardedAsync<TDialog>(title, parameters, size, options, cancellationToken);
+    {
+        return OpenGuardedAsync<TDialog>(title, parameters, size, options, cancellationToken);
+    }
 
     public async Task<TResult?> OpenAsync<TDialog, TResult>(
         string? title = null,
@@ -60,25 +71,48 @@ public sealed class DialogOpener(IDialogService dialogService, DialogOpenerOptio
         CancellationToken cancellationToken = default)
         where TDialog : IComponent
     {
-        var result = await OpenGuardedAsync<TDialog>(title, parameters, size, options, cancellationToken);
-        return result is null || result.Canceled ? default : result.Data is TResult data ? data : default;
+        DialogResult? result = await OpenGuardedAsync<TDialog>(title, parameters, size, options, cancellationToken);
+
+        if (result == null || result.Canceled)
+        {
+            return default;
+        }
+
+        if (result.Data is TResult typedData)
+        {
+            return typedData;
+        }
+
+        return default;
     }
 
     private async Task<DialogResult?> OpenGuardedAsync<TDialog>(
-        string? title, object? parameters, DialogSize size, DialogOptions? options,
+        string? title,
+        object? parameters,
+        DialogSize size,
+        DialogOptions? options,
         CancellationToken cancellationToken)
         where TDialog : IComponent
     {
-        if (!_openDialogs.TryAdd(typeof(TDialog), 0))
-            return null; // samma dialog är redan öppen — avvisa direkt
+        bool wasAdded = _openDialogs.TryAdd(typeof(TDialog), 0);
+        if (!wasAdded)
+        {
+            // Samma dialog är redan öppen — avvisa direkt
+            return null;
+        }
 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var dialog = await dialogService.ShowAsync<TDialog>(
+
+            DialogParameters<TDialog> dialogParameters = BuildParameters<TDialog>(parameters);
+            DialogOptions dialogOptions = options != null ? options : DialogOpenerOptions.Copy(_config.Presets[size]);
+
+            IDialogReference dialog = await _dialogService.ShowAsync<TDialog>(
                 title ?? string.Empty,
-                BuildParameters<TDialog>(parameters),
-                options ?? DialogOpenerOptions.Copy(config.Presets[size]));
+                dialogParameters,
+                dialogOptions);
+
             return await dialog.Result;
         }
         finally
@@ -89,20 +123,35 @@ public sealed class DialogOpener(IDialogService dialogService, DialogOpenerOptio
 
     private static DialogParameters<TDialog> BuildParameters<TDialog>(object? parameters)
         where TDialog : IComponent
-        => parameters switch
+    {
+        if (parameters == null)
         {
-            null => new DialogParameters<TDialog>(),
-            DialogParameters<TDialog> typed => typed,
-            IReadOnlyDictionary<string, object?> dictionary => FromDictionary<TDialog>(dictionary),
-            _ => MapByName<TDialog>(parameters)
-        };
+            return new DialogParameters<TDialog>();
+        }
+
+        if (parameters is DialogParameters<TDialog> typedParameters)
+        {
+            return typedParameters;
+        }
+
+        if (parameters is IReadOnlyDictionary<string, object?> dictionary)
+        {
+            return FromDictionary<TDialog>(dictionary);
+        }
+
+        return MapByName<TDialog>(parameters);
+    }
 
     private static DialogParameters<TDialog> FromDictionary<TDialog>(IReadOnlyDictionary<string, object?> dictionary)
         where TDialog : IComponent
     {
-        var result = new DialogParameters<TDialog>();
-        foreach (var (key, value) in dictionary)
-            result.Add(key, value);
+        DialogParameters<TDialog> result = new DialogParameters<TDialog>();
+
+        foreach (KeyValuePair<string, object?> entry in dictionary)
+        {
+            result.Add(entry.Key, entry.Value);
+        }
+
         return result;
     }
 
@@ -111,16 +160,26 @@ public sealed class DialogOpener(IDialogService dialogService, DialogOpenerOptio
     private static DialogParameters<TDialog> MapByName<TDialog>(object source)
         where TDialog : IComponent
     {
-        var dialogParameters = typeof(TDialog).GetProperties()
-            .Where(p => p.CanWrite && p.GetCustomAttribute<ParameterAttribute>() is not null)
+        Dictionary<string, PropertyInfo> dialogParameters = typeof(TDialog)
+            .GetProperties()
+            .Where(p => p.CanWrite && p.GetCustomAttribute<ParameterAttribute>() != null)
             .ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
 
-        var result = new DialogParameters<TDialog>();
-        foreach (var property in source.GetType().GetProperties())
+        DialogParameters<TDialog> result = new DialogParameters<TDialog>();
+
+        foreach (PropertyInfo property in source.GetType().GetProperties())
         {
-            if (property.CanRead && dialogParameters.TryGetValue(property.Name, out var target))
+            if (!property.CanRead)
+            {
+                continue;
+            }
+
+            if (dialogParameters.TryGetValue(property.Name, out PropertyInfo? target))
+            {
                 result.Add(target.Name, property.GetValue(source));
+            }
         }
+
         return result;
     }
 }
@@ -145,9 +204,9 @@ public enum DialogSize
 /// </summary>
 public sealed class DialogOpenerOptions
 {
-    public Dictionary<DialogSize, DialogOptions> Presets { get; } = new()
+    public Dictionary<DialogSize, DialogOptions> Presets { get; } = new Dictionary<DialogSize, DialogOptions>
     {
-        [DialogSize.Small] = new()
+        [DialogSize.Small] = new DialogOptions
         {
             MaxWidth = MaxWidth.Small,
             FullWidth = true,
@@ -156,7 +215,7 @@ public sealed class DialogOpenerOptions
             BackdropClick = true,
             BackgroundClass = "dialog-backdrop"
         },
-        [DialogSize.Medium] = new()
+        [DialogSize.Medium] = new DialogOptions
         {
             MaxWidth = MaxWidth.Medium,
             FullWidth = true,
@@ -165,7 +224,7 @@ public sealed class DialogOpenerOptions
             BackdropClick = true,
             BackgroundClass = "dialog-backdrop dialog-medium"
         },
-        [DialogSize.Large] = new()
+        [DialogSize.Large] = new DialogOptions
         {
             MaxWidth = MaxWidth.Large,
             FullWidth = true,
@@ -174,7 +233,7 @@ public sealed class DialogOpenerOptions
             BackdropClick = false,
             BackgroundClass = "dialog-backdrop dialog-large"
         },
-        [DialogSize.ExtraLarge] = new()
+        [DialogSize.ExtraLarge] = new DialogOptions
         {
             MaxWidth = MaxWidth.ExtraLarge,
             FullWidth = true,
@@ -183,7 +242,7 @@ public sealed class DialogOpenerOptions
             BackdropClick = false,
             BackgroundClass = "dialog-backdrop dialog-xl"
         },
-        [DialogSize.FullScreen] = new()
+        [DialogSize.FullScreen] = new DialogOptions
         {
             FullScreen = true,
             CloseButton = true,
@@ -194,18 +253,21 @@ public sealed class DialogOpenerOptions
     };
 
     /// <summary>Kopierar en preset så att den delade instansen aldrig muteras per anrop.</summary>
-    internal static DialogOptions Copy(DialogOptions source) => new()
+    internal static DialogOptions Copy(DialogOptions source)
     {
-        MaxWidth = source.MaxWidth,
-        FullWidth = source.FullWidth,
-        FullScreen = source.FullScreen,
-        CloseButton = source.CloseButton,
-        CloseOnEscapeKey = source.CloseOnEscapeKey,
-        BackdropClick = source.BackdropClick,
-        Position = source.Position,
-        NoHeader = source.NoHeader,
-        BackgroundClass = source.BackgroundClass
-    };
+        return new DialogOptions
+        {
+            MaxWidth = source.MaxWidth,
+            FullWidth = source.FullWidth,
+            FullScreen = source.FullScreen,
+            CloseButton = source.CloseButton,
+            CloseOnEscapeKey = source.CloseOnEscapeKey,
+            BackdropClick = source.BackdropClick,
+            Position = source.Position,
+            NoHeader = source.NoHeader,
+            BackgroundClass = source.BackgroundClass
+        };
+    }
 }
 
 public static class DialogOpenerServiceCollectionExtensions
@@ -219,7 +281,7 @@ public static class DialogOpenerServiceCollectionExtensions
         this IServiceCollection services,
         Action<DialogOpenerOptions>? configure = null)
     {
-        var options = new DialogOpenerOptions();
+        DialogOpenerOptions options = new DialogOpenerOptions();
         configure?.Invoke(options);
 
         services.AddMudServices();
