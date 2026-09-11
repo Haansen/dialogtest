@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
@@ -91,8 +92,9 @@ public sealed class DialogOpenerOptions
 
 /// <summary>
 /// Generisk dialog-öppnare för MudBlazor.
-/// Toppnivå-dialoger (OpenAsync) spärras så att bara en kan vara öppen åt gången.
-/// Dialoger som öppnas inifrån en annan dialog (OpenChildAsync) staplas utan spärr.
+/// Spärren är per dialogtyp: samma dialog kan aldrig vara öppen flera gånger
+/// samtidigt (ett andra försök avvisas och ger null tillbaka), men olika
+/// dialoger får gärna vara öppna samtidigt.
 ///
 /// Parametrar kan skickas som:
 ///   null                        – inga parametrar
@@ -105,7 +107,7 @@ public sealed class DialogOpenerOptions
 /// </summary>
 public interface IDialogOpener
 {
-    /// <summary>Öppnar en toppnivå-dialog. Köar bakom en eventuellt öppen dialog.</summary>
+    /// <summary>Öppnar en toppnivå-dialog. Avvisas (null) om samma dialogtyp redan är öppen.</summary>
     Task<DialogResult?> OpenAsync<TDialog>(
         string? title = null,
         object? parameters = null,
@@ -114,7 +116,7 @@ public interface IDialogOpener
         CancellationToken cancellationToken = default)
         where TDialog : IComponent;
 
-    /// <summary>Öppnar en toppnivå-dialog och returnerar ett typat resultat (default vid avbrott).</summary>
+    /// <summary>Öppnar en toppnivå-dialog och returnerar ett typat resultat (default vid avbrott/avvisning).</summary>
     Task<TResult?> OpenAsync<TDialog, TResult>(
         string? title = null,
         object? parameters = null,
@@ -123,7 +125,7 @@ public interface IDialogOpener
         CancellationToken cancellationToken = default)
         where TDialog : IComponent;
 
-    /// <summary>Öppnar en barn-dialog inifrån en dialog. Staplas direkt, ingen spärr.</summary>
+    /// <summary>Öppnar en barn-dialog inifrån en dialog. Avvisas (null) om samma dialogtyp redan är öppen.</summary>
     Task<DialogResult?> OpenChildAsync<TDialog>(
         string? title = null,
         object? parameters = null,
@@ -152,7 +154,10 @@ public sealed class DialogOpener : IDialogOpener
 {
     private readonly IDialogService _dialogService;
     private readonly DialogOpenerOptions _config;
-    private readonly SemaphoreSlim _lock = new(1, 1);
+
+    // En spärr per dialogtyp: samma dialog kan inte vara öppen dubbelt,
+    // men olika dialogtyper blockerar inte varandra.
+    private readonly ConcurrentDictionary<Type, SemaphoreSlim> _gates = new();
 
     public DialogOpener(IDialogService dialogService, DialogOpenerOptions config)
     {
@@ -160,24 +165,14 @@ public sealed class DialogOpener : IDialogOpener
         _config = config;
     }
 
-    public async Task<DialogResult?> OpenAsync<TDialog>(
+    public Task<DialogResult?> OpenAsync<TDialog>(
         string? title = null,
         object? parameters = null,
         DialogSize size = DialogSize.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
         where TDialog : IComponent
-    {
-        await _lock.WaitAsync(cancellationToken);
-        try
-        {
-            return await ShowCoreAsync<TDialog>(title, parameters, size, options);
-        }
-        finally
-        {
-            _lock.Release();
-        }
-    }
+        => OpenGuardedAsync<TDialog>(title, parameters, size, options, cancellationToken);
 
     public async Task<TResult?> OpenAsync<TDialog, TResult>(
         string? title = null,
@@ -187,7 +182,7 @@ public sealed class DialogOpener : IDialogOpener
         CancellationToken cancellationToken = default)
         where TDialog : IComponent
     {
-        var result = await OpenAsync<TDialog>(title, parameters, size, options, cancellationToken);
+        var result = await OpenGuardedAsync<TDialog>(title, parameters, size, options, cancellationToken);
         return Unwrap<TResult>(result);
     }
 
@@ -197,7 +192,7 @@ public sealed class DialogOpener : IDialogOpener
         DialogSize size = DialogSize.Medium,
         DialogOptions? options = null)
         where TDialog : IComponent
-        => ShowCoreAsync<TDialog>(title, parameters, size, options);
+        => OpenGuardedAsync<TDialog>(title, parameters, size, options, CancellationToken.None);
 
     public async Task<TResult?> OpenChildAsync<TDialog, TResult>(
         string? title = null,
@@ -206,7 +201,7 @@ public sealed class DialogOpener : IDialogOpener
         DialogOptions? options = null)
         where TDialog : IComponent
     {
-        var result = await ShowCoreAsync<TDialog>(title, parameters, size, options);
+        var result = await OpenGuardedAsync<TDialog>(title, parameters, size, options, CancellationToken.None);
         return Unwrap<TResult>(result);
     }
 
@@ -219,6 +214,30 @@ public sealed class DialogOpener : IDialogOpener
         => OpenChildAsync<Components.Dialogs.ConfirmDialog, bool>(title,
             new { Message = message, ConfirmText = confirmText, CancelText = cancelText, ConfirmColor = confirmColor },
             DialogSize.Small);
+
+    // Tar spärren för just denna dialogtyp. Är den redan öppen avvisas anropet
+    // direkt (WaitAsync(0)) och null returneras — kö hade inneburit att samma
+    // dialog till slut öppnats en gång till, vilket är precis det vi skyddar mot.
+    private async Task<DialogResult?> OpenGuardedAsync<TDialog>(
+        string? title,
+        object? parameters,
+        DialogSize size,
+        DialogOptions? options,
+        CancellationToken cancellationToken)
+        where TDialog : IComponent
+    {
+        var gate = _gates.GetOrAdd(typeof(TDialog), static _ => new SemaphoreSlim(1, 1));
+        if (!await gate.WaitAsync(0, cancellationToken))
+            return null;
+        try
+        {
+            return await ShowCoreAsync<TDialog>(title, parameters, size, options);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
     private async Task<DialogResult?> ShowCoreAsync<TDialog>(
         string? title,

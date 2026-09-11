@@ -75,15 +75,21 @@ Explicit `options:` i ett anrop vinner alltid över preseten.
 
 ## Spärren
 
-| Metod | Används från | Spärr |
-|---|---|---|
-| `OpenAsync` | Pages (toppnivå) | Ja – bara en åt gången, anrop köar |
-| `OpenChildAsync` | Inifrån en dialog | Nej – staplas direkt ovanpå |
-| `ConfirmAsync` | Överallt | Nej |
+Spärren är **per dialogtyp**: samma dialog kan aldrig vara öppen flera gånger samtidigt,
+men olika dialoger får vara öppna samtidigt.
 
-Spärren är en `SemaphoreSlim` i den scoped servicen `Services/DialogOpener.cs`.
-Toppnivå-anrop köar bakom en öppen dialog (skydd mot dubbelklick m.m.), medan
-barn-dialoger medvetet går förbi spärren — MudBlazor stödjer staplade dialoger nativt.
+```csharp
+// Dubbelklick på "Redigera" → bara en CustomerDialog öppnas.
+// Andra anropet avvisas direkt och returnerar null.
+var saved = await DialogOpener.OpenAsync<CustomerDialog, Customer>("Redigera", customer);
+
+// Samtidigt: en helt annan dialog kan vara öppen utan att blockeras.
+```
+
+Det gäller både `OpenAsync`, `OpenChildAsync` och `ConfirmAsync` — en `ConfirmDialog`
+kan t.ex. inte öppnas dubbelt. Tekniskt är det en `SemaphoreSlim` per dialogtyp i en
+`ConcurrentDictionary<Type, SemaphoreSlim>` i den scoped servicen, och avvisningen sker
+med `WaitAsync(0)` — kö hade betytt att samma dialog till slut öppnats en gång till.
 
 ## Dialog-kontraktet
 
