@@ -24,16 +24,16 @@
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
 
-    [Parameter] public int? CustomerId { get; set; }
+    [Parameter] public int Id { get; set; }
 
     private Customer _model = new();
 
     protected override void OnInitialized()
     {
-        if (CustomerId is int id)
+        if (Id > 0)
         {
             // Simulerad uppslagning — i ett riktigt projekt: ladda från databas/API
-            _model = new Customer { Id = id, Name = $"Kund {id}" };
+            _model = new Customer { Id = Id, Name = $"Kund {Id}" };
         }
     }
 

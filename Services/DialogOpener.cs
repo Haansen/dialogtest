@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
 
@@ -7,38 +8,49 @@ namespace DialogTest.Services;
 /// Generisk dialog-öppnare för MudBlazor.
 /// Toppnivå-dialoger (OpenAsync) spärras så att bara en kan vara öppen åt gången.
 /// Dialoger som öppnas inifrån en annan dialog (OpenChildAsync) staplas utan spärr.
+///
+/// Parametrar kan skickas som:
+///   null                        – inga parametrar
+///   anonymous object            – new { ModelId = 5 } mappas per namn mot dialogens [Parameter]
+///   valfri modell-klass         – matchande propertynamn mappas, övriga ignoreras
+///   DialogParameters&lt;TDialog&gt;   – typ-säkert, används som det är
+///   IReadOnlyDictionary         – nyckel/värde direkt
 /// </summary>
 public interface IDialogOpener
 {
     /// <summary>Öppnar en toppnivå-dialog. Köar bakom en eventuellt öppen dialog.</summary>
-    Task<DialogResult?> OpenAsync<TComponent>(
+    Task<DialogResult?> OpenAsync<TDialog>(
         string? title = null,
-        DialogParameters<TComponent>? parameters = null,
+        object? parameters = null,
+        MaxWidth maxWidth = MaxWidth.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
-        where TComponent : IComponent;
+        where TDialog : IComponent;
 
     /// <summary>Öppnar en toppnivå-dialog och returnerar ett typat resultat (default vid avbrott).</summary>
-    Task<TResult?> OpenAsync<TComponent, TResult>(
+    Task<TResult?> OpenAsync<TDialog, TResult>(
         string? title = null,
-        DialogParameters<TComponent>? parameters = null,
+        object? parameters = null,
+        MaxWidth maxWidth = MaxWidth.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
-        where TComponent : IComponent;
+        where TDialog : IComponent;
 
     /// <summary>Öppnar en barn-dialog inifrån en dialog. Staplas direkt, ingen spärr.</summary>
-    Task<DialogResult?> OpenChildAsync<TComponent>(
+    Task<DialogResult?> OpenChildAsync<TDialog>(
         string? title = null,
-        DialogParameters<TComponent>? parameters = null,
+        object? parameters = null,
+        MaxWidth maxWidth = MaxWidth.Medium,
         DialogOptions? options = null)
-        where TComponent : IComponent;
+        where TDialog : IComponent;
 
     /// <summary>Öppnar en barn-dialog inifrån en dialog och returnerar ett typat resultat.</summary>
-    Task<TResult?> OpenChildAsync<TComponent, TResult>(
+    Task<TResult?> OpenChildAsync<TDialog, TResult>(
         string? title = null,
-        DialogParameters<TComponent>? parameters = null,
+        object? parameters = null,
+        MaxWidth maxWidth = MaxWidth.Medium,
         DialogOptions? options = null)
-        where TComponent : IComponent;
+        where TDialog : IComponent;
 
     /// <summary>Enkel bekräftelsedialog. Fungerar både från pages och inifrån dialoger.</summary>
     Task<bool> ConfirmAsync(
@@ -59,17 +71,18 @@ public sealed class DialogOpener : IDialogOpener
         _dialogService = dialogService;
     }
 
-    public async Task<DialogResult?> OpenAsync<TComponent>(
+    public async Task<DialogResult?> OpenAsync<TDialog>(
         string? title = null,
-        DialogParameters<TComponent>? parameters = null,
+        object? parameters = null,
+        MaxWidth maxWidth = MaxWidth.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
-        where TComponent : IComponent
+        where TDialog : IComponent
     {
         await _lock.WaitAsync(cancellationToken);
         try
         {
-            return await ShowCoreAsync<TComponent>(title, parameters, options);
+            return await ShowCoreAsync<TDialog>(title, parameters, maxWidth, options);
         }
         finally
         {
@@ -77,31 +90,34 @@ public sealed class DialogOpener : IDialogOpener
         }
     }
 
-    public async Task<TResult?> OpenAsync<TComponent, TResult>(
+    public async Task<TResult?> OpenAsync<TDialog, TResult>(
         string? title = null,
-        DialogParameters<TComponent>? parameters = null,
+        object? parameters = null,
+        MaxWidth maxWidth = MaxWidth.Medium,
         DialogOptions? options = null,
         CancellationToken cancellationToken = default)
-        where TComponent : IComponent
+        where TDialog : IComponent
     {
-        var result = await OpenAsync<TComponent>(title, parameters, options, cancellationToken);
+        var result = await OpenAsync<TDialog>(title, parameters, maxWidth, options, cancellationToken);
         return Unwrap<TResult>(result);
     }
 
-    public Task<DialogResult?> OpenChildAsync<TComponent>(
+    public Task<DialogResult?> OpenChildAsync<TDialog>(
         string? title = null,
-        DialogParameters<TComponent>? parameters = null,
+        object? parameters = null,
+        MaxWidth maxWidth = MaxWidth.Medium,
         DialogOptions? options = null)
-        where TComponent : IComponent
-        => ShowCoreAsync<TComponent>(title, parameters, options);
+        where TDialog : IComponent
+        => ShowCoreAsync<TDialog>(title, parameters, maxWidth, options);
 
-    public async Task<TResult?> OpenChildAsync<TComponent, TResult>(
+    public async Task<TResult?> OpenChildAsync<TDialog, TResult>(
         string? title = null,
-        DialogParameters<TComponent>? parameters = null,
+        object? parameters = null,
+        MaxWidth maxWidth = MaxWidth.Medium,
         DialogOptions? options = null)
-        where TComponent : IComponent
+        where TDialog : IComponent
     {
-        var result = await ShowCoreAsync<TComponent>(title, parameters, options);
+        var result = await ShowCoreAsync<TDialog>(title, parameters, maxWidth, options);
         return Unwrap<TResult>(result);
     }
 
@@ -111,27 +127,66 @@ public sealed class DialogOpener : IDialogOpener
         string confirmText = "Ja",
         string cancelText = "Avbryt",
         Color confirmColor = Color.Primary)
-    {
-        var parameters = new DialogParameters<Components.Dialogs.ConfirmDialog>
-        {
-            { x => x.Message, message },
-            { x => x.ConfirmText, confirmText },
-            { x => x.CancelText, cancelText },
-            { x => x.ConfirmColor, confirmColor }
-        };
+        => OpenChildAsync<Components.Dialogs.ConfirmDialog, bool>(title,
+            new { Message = message, ConfirmText = confirmText, CancelText = cancelText, ConfirmColor = confirmColor });
 
-        return OpenChildAsync<Components.Dialogs.ConfirmDialog, bool>(title, parameters);
+    private async Task<DialogResult?> ShowCoreAsync<TDialog>(
+        string? title,
+        object? parameters,
+        MaxWidth maxWidth,
+        DialogOptions? options)
+        where TDialog : IComponent
+    {
+        var dialog = await _dialogService.ShowAsync<TDialog>(
+            title ?? string.Empty,
+            BuildParameters<TDialog>(parameters),
+            options ?? DefaultOptions(maxWidth));
+        return await dialog.Result;
     }
 
-    private async Task<DialogResult?> ShowCoreAsync<TComponent>(
-        string? title,
-        DialogParameters<TComponent>? parameters,
-        DialogOptions? options)
-        where TComponent : IComponent
+    private static DialogOptions DefaultOptions(MaxWidth maxWidth) => new()
     {
-        var dialog = await _dialogService.ShowAsync<TComponent>(
-            title ?? string.Empty, parameters ?? new DialogParameters<TComponent>(), options);
-        return await dialog.Result;
+        MaxWidth = maxWidth,
+        FullWidth = true,
+        CloseButton = true,
+        CloseOnEscapeKey = true
+    };
+
+    private static DialogParameters<TDialog> BuildParameters<TDialog>(object? parameters)
+        where TDialog : IComponent
+    {
+        switch (parameters)
+        {
+            case null:
+                return new DialogParameters<TDialog>();
+            case DialogParameters<TDialog> typed:
+                return typed;
+            case IReadOnlyDictionary<string, object?> dictionary:
+                var fromDictionary = new DialogParameters<TDialog>();
+                foreach (var (key, value) in dictionary)
+                    fromDictionary.Add(key, value);
+                return fromDictionary;
+            default:
+                return MapByName<TDialog>(parameters);
+        }
+    }
+
+    // Mappar propertynamn på källobjektet mot dialogens [Parameter]-properties.
+    // Properties som inte matchar ignoreras, så en hel modell-klass kan skickas in.
+    private static DialogParameters<TDialog> MapByName<TDialog>(object source)
+        where TDialog : IComponent
+    {
+        var dialogParameters = typeof(TDialog).GetProperties()
+            .Where(p => p.CanWrite && p.GetCustomAttribute<ParameterAttribute>() is not null)
+            .ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
+
+        var mapped = new DialogParameters<TDialog>();
+        foreach (var property in source.GetType().GetProperties())
+        {
+            if (property.CanRead && dialogParameters.TryGetValue(property.Name, out var target))
+                mapped.Add(target.Name, property.GetValue(source));
+        }
+        return mapped;
     }
 
     private static TResult? Unwrap<TResult>(DialogResult? result)

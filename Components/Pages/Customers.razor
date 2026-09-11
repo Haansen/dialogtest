@@ -39,13 +39,11 @@
         new() { Id = 2, Name = "Globex HB" }
     ];
 
-    // One-liner: öppna dialog, få typat resultat, null = användaren avbröt
+    // One-liner: hela modellen skickas in — dess Id-property mappas automatiskt
+    // mot dialogens [Parameter] Id. Typat resultat, null = användaren avbröt.
     private async Task EditCustomer(Customer customer)
     {
-        var saved = await DialogOpener.OpenAsync<CustomerDialog, Customer>(
-            title: "Redigera kund",
-            parameters: new DialogParameters<CustomerDialog> { { x => x.CustomerId, customer.Id } },
-            options: new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true });
+        var saved = await DialogOpener.OpenAsync<CustomerDialog, Customer>("Redigera kund", customer);
 
         if (saved is null) return;
 
@@ -54,9 +52,10 @@
         Snackbar.Add($"{saved.Name} uppdaterad", Severity.Success);
     }
 
+    // Utan parametrar alls
     private async Task NewCustomer()
     {
-        var created = await DialogOpener.OpenAsync<CustomerDialog, Customer>(title: "Ny kund");
+        var created = await DialogOpener.OpenAsync<CustomerDialog, Customer>("Ny kund");
         if (created is null) return;
 
         created.Id = _customers.Max(c => c.Id) + 1;
